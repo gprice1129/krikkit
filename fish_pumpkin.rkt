@@ -61,14 +61,23 @@
       (loop)))
   es)
 
+(define width 400)
+(define height 300)
+
 (define wmaker (widget-maker (event-pusher 'key) (event-pusher 'mouse)))
 (define window (wmaker))
 (window 'set-title! "testing")
-(window 'resize 400 300)
+(window 'resize width height)
 (window 'show)
 
 (define pos-x 0)
 (define pos-y 0)
+
+(define bm  (make-object bitmap% width height))
+(define bdc (new bitmap-dc% (bitmap bm)))
+(send bdc set-background (make-object color% 128 128 128))
+
+
 
 (void (thread (lambda ()
         (let loop ()
@@ -76,6 +85,8 @@
             (match event
               (`(mouse motion ,x ,y) (set! pos-x x) (set! pos-y y))
               (_ (pretty-print event))))
-          (window 'paint (lambda (dc) (draw-pict joined-image dc pos-x pos-y)))
-          (sleep 0)
+          (send bdc clear)
+          (draw-pict joined-image bdc pos-x pos-y)
+          (window 'paint (lambda (dc) (send dc draw-bitmap bm 0 0)))
+          (sleep 0.01)
           (loop)))))
