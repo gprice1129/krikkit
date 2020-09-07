@@ -1,5 +1,6 @@
 #lang racket/base
 (provide
+  widget-maker new-events event-pusher pop-events!
 )
 
 (require pict pict/flash racket/draw racket/class racket/gui/base racket/match racket/pretty
