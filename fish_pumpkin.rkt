@@ -166,10 +166,6 @@
            (equal? (list (world.new 'ref 0 0) (world.new 'ref 1 0))
                    '(() (fish)))))))
 
-;(module+ your-own-whatever
-;  (provide stuff)
-;)
-
 ;; raco test fish_pumpkin.rkt
 
 (module+ main
