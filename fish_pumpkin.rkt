@@ -1,18 +1,19 @@
 #lang racket/base
-(require pict pict/flash racket/draw racket/class racket/gui/base racket/match racket/pretty
+(require pict pict/flash racket/draw racket/class racket/gui/base
+         racket/match racket/pretty racket/vector
          "windows.rkt")
 
 (define image (standard-fish 100 45 #:open-mouth #t #:color (make-color 128 0 128)))
 (define image2 (jack-o-lantern 100 (make-color 128 0 128)))
 (define joined-image (hc-append image2 image))
 
-(define eq (event-queue))
+(define evq (event-queue))
 
 (define ((event-pusher tag) event)
-  (eq 'push (cons tag event)))
+  (evq 'push (cons tag event)))
 
 (define width 400)
-(define height 300)
+(define height 450)
 
 
 ;; game winning condition
@@ -37,78 +38,102 @@
          1 1 1 1 1 1 1 1)))
 
 (define (world width height map-data)
-  (define grid (list->vector map-data))
-  (method-lambda
-    ((show) grid)
-    ((restart)
-      (let loop ((i 0) (data map-data))
-        (unless (null? data)
-          (vector-set! grid i (car data))
-          (loop (+ i 1) (cdr data)))))
-    ((winning?)
-      (for/and ((tile (in-vector grid)))
-        ;; TODONT: collapse to single iteration check
-        (or (not (member 'pumpkin tile)) (member 'candle tile))))
-    ((move direction)
-      (define (position x y) (cons x y))
-      (define (position-x pos) (car pos))
-      (define (position-y pos) (cdr pos))
-      (define (position->index pos) (+ (* (position-y pos) width) (position-x pos)))
-      (define (index->position index) (position (remainder index width)
-                                                (quotient index width)))
+  (let world ((grid (list->vector map-data)))
+    (define (position x y) (cons x y))
+    (define (position-x pos) (car pos))
+    (define (position-y pos) (cdr pos))
+    (define (position->index pos) (+ (* (position-y pos) width) (position-x pos)))
+    (method-lambda
+      ((width)   width)
+      ((height)  height)
+      ((ref x y) (vector-ref grid (position->index (position x y))))
+      ((restart)
+        (let ((grid (vector-copy grid)))
+          (let loop ((i 0) (data map-data))
+            (unless (null? data)
+              (vector-set! grid i (car data))
+              (loop (+ i 1) (cdr data))))
+          (world grid)))
+      ((winning?)
+        (for/and ((tile (in-vector grid)))
+          ;; TODONT: collapse to single iteration check
+          (or (not (member 'pumpkin tile)) (member 'candle tile))))
+      ((move direction)
+        (let ((grid (vector-copy grid)))
+          (define (index->position index) (position (remainder index width)
+                                                    (quotient index width)))
 
-      (define (simplify pos)
-        (define x (position-x pos))
-        (define y (position-y pos))
-        (define tile (if (or (< x 0) (< y 0) (>= x width) (>= y height))
-                        '(wall)
-                        (vector-ref grid (position->index pos))))
-        (cond ((member 'wall tile) 'obstacle)
-              ((member 'pumpkin tile) 'pumpkin)
-              (else 'vacant)))
+          (define (simplify pos)
+            (define x (position-x pos))
+            (define y (position-y pos))
+            (define tile (if (or (< x 0) (< y 0) (>= x width) (>= y height))
+                            '(wall)
+                            (vector-ref grid (position->index pos))))
+            (cond ((member 'wall tile) 'obstacle)
+                  ((member 'pumpkin tile) 'pumpkin)
+                  (else 'vacant)))
 
-      (define (offset pos dir)
-        (case dir
-          ((up)    (position (position-x pos) (- (position-y pos) 1)))
-          ((down)  (position (position-x pos) (+ (position-y pos) 1)))
-          ((left)  (position (- (position-x pos) 1) (position-y pos)))
-          ((right) (position (+ (position-x pos) 1) (position-y pos)))))
+          (define (offset pos dir)
+            (case dir
+              ((up)    (position (position-x pos) (- (position-y pos) 1)))
+              ((down)  (position (position-x pos) (+ (position-y pos) 1)))
+              ((left)  (position (- (position-x pos) 1) (position-y pos)))
+              ((right) (position (+ (position-x pos) 1) (position-y pos)))))
 
-      (define (move-fish pos dir)
-        (define target (offset pos dir))
-        (case (simplify target)
-          ((obstacle) #f)
-          ((pumpkin) (and (move-pumpkin target dir)
-                          (move-entity 'fish pos target)))
-          ((vacant) (move-entity 'fish pos target))))
+          (define (move-fish pos dir)
+            (define target (offset pos dir))
+            (case (simplify target)
+              ((obstacle) #f)
+              ((pumpkin) (and (move-pumpkin target dir)
+                              (move-entity 'fish pos target)))
+              ((vacant) (move-entity 'fish pos target))))
 
-      (define (move-pumpkin pos dir)
-        (define target (offset pos dir))
-        (case (simplify target)
-          ((obstacle pumpkin) #f)
-          ((vacant) (move-entity 'pumpkin pos target))))
+          (define (move-pumpkin pos dir)
+            (define target (offset pos dir))
+            (case (simplify target)
+              ((obstacle pumpkin) #f)
+              ((vacant) (move-entity 'pumpkin pos target))))
 
-      (define (move-entity entity pos target)
-        (define entity-index (position->index pos))
-        (define target-index (position->index target))
-        (define tile (vector-ref grid entity-index))
-        (define target-tile (vector-ref grid target-index))
-        (vector-set! grid entity-index (remq entity tile))
-        (vector-set! grid target-index (cons entity target-tile))
-        #t)
+          (define (move-entity entity pos target)
+            (define entity-index (position->index pos))
+            (define target-index (position->index target))
+            (define tile (vector-ref grid entity-index))
+            (define target-tile (vector-ref grid target-index))
+            (vector-set! grid entity-index (remq entity tile))
+            (vector-set! grid target-index (cons entity target-tile))
+            #t)
 
-      (define fish-pos 
-        (let loop ((i 0))
-          (if (member 'fish (vector-ref grid i))
-              (index->position i)
-              (begin
-                (loop (+ i 1))))))
+          (define fish-pos 
+            (let loop ((i 0))
+              (if (member 'fish (vector-ref grid i))
+                  (index->position i)
+                  (begin
+                    (loop (+ i 1))))))
 
-      (move-fish fish-pos direction))))
+          (and (move-fish fish-pos direction)
+               (world grid)))))))
+
+(define (draw-world dc w)
+  (define-values (tile-width tile-height) (values 50 50))
+  (define fish (standard-fish 50 25))
+  (define pumpkin (jack-o-lantern 50))
+  (define wall (standard-cat 50 45))
+  (define candle (circle 50))
+  (for* ((x (in-range (w 'width)))
+         (y (in-range (w 'height))))
+    (define-values (px-x px-y) (values (* tile-width x) (* tile-height y)))
+    (for ((entity (reverse (w 'ref x y))))
+      (draw-pict
+        (case entity
+          ((candle)  candle)
+          ((pumpkin) pumpkin)
+          ((wall)    wall)
+          ((fish)    fish))
+        dc px-x px-y))))
 
 (module+ test
   (require rackunit)
-  (check-true ((world 4 3 '(() (wall) (wall) ()
+  (check-not-false ((world 4 3 '(() (wall) (wall) ()
                () (pumpkin candle) () () ()
                () () () ())) 'winning?))
 
@@ -116,28 +141,30 @@
   (check-false ((world 4 3 '(() (wall) (wall) ()
              () (pumpkin candle) () (pumpkin) (candle)
              () () () ())) 'winning?))          
-             
-  (check-true ((world 2 1 '((fish) ())) 'move 'right))
+
+  (check-not-false ((world 2 1 '((fish) ())) 'move 'right))
   (check-false ((world 1 2 '((fish) ())) 'move 'right))
-  (check-true ((world 2 1 '(() (fish))) 'move 'left))
+  (check-not-false ((world 2 1 '(() (fish))) 'move 'left))
   (check-false ((world 1 2 '(() (fish))) 'move 'left))
-  (check-true ((world 1 2 '(() (fish))) 'move 'up))
+  (check-not-false ((world 1 2 '(() (fish))) 'move 'up))
   (check-false ((world 2 1 '(() (fish))) 'move 'up))
-  (check-true ((world 1 2 '((fish) ())) 'move 'down))
+  (check-not-false ((world 1 2 '((fish) ())) 'move 'down))
   (check-false ((world 2 1 '((fish) ())) 'move 'down))
 
   (check-false ((world 2 1 '((fish) (pumpkin))) 'move 'right))
-  (check-true ((world 3 1 '((fish) (pumpkin) ())) 'move 'right))
+  (check-not-false ((world 3 1 '((fish) (pumpkin) ())) 'move 'right))
   (check-false ((world 3 1 '((fish) (pumpkin) (pumpkin))) 'move 'right))
   (check-false ((world 3 1 '((fish) (pumpkin) (wall))) 'move 'right))
 
   (check-false ((world 2 1 '((fish) (wall))) 'move 'right))
 
   (define test-world (world 2 1 '((fish) ())))
-  (check-true
-    (and
-      (test-world 'move 'right)
-      (equal? (test-world 'show) '#(() (fish))))))
+  (check-not-false
+    (let ((world.new (test-world 'move 'right)))
+      (and world.new
+           ;; TODO: use ref instead of show
+           (equal? (list (world.new 'ref 0 0) (world.new 'ref 1 0))
+                   '(() (fish)))))))
 
 ;(module+ your-own-whatever
 ;  (provide stuff)
@@ -154,17 +181,25 @@
   (w 'show)
   (w 'set-background 128 128 128)
   (void (thread (lambda ()
-          (let loop ()
-            (for ((event (eq 'pop)))
-              (match event
-                (`(mouse motion ,x ,y) (set! pos-x x) (set! pos-y y))
-                (_ (pretty-print event))))
-          
-            ;; update simulation/data-model/ui-model/etc.
-
+          (let loop ((sw (world 8 9 map.level1)))
+            (define sw.new
+              (foldl
+                (lambda (event sw)
+                  (match event
+                    (`(key down ,char)
+                      (define sw.new
+                        (match char
+                          (#\w (sw 'move 'up))
+                          (#\a (sw 'move 'left))
+                          (#\d (sw 'move 'right))
+                          (#\s (sw 'move 'down))
+                          (_ sw)))
+                      (or sw.new sw))
+                    (_ sw)))
+                sw
+                (evq 'pop)))
             (w 'render
               (lambda (dc)
-                ;; draw world/ui/etc.
-                (draw-pict joined-image dc pos-x pos-y)))
+                (draw-world dc sw.new)))
             (sleep 0.01)
-            (loop))))))
+            (loop (if (sw.new 'winning?) (sw.new 'restart) sw.new)))))))
