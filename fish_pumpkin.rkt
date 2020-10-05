@@ -1,7 +1,7 @@
 #lang racket/base
 (require pict pict/flash racket/draw racket/class racket/gui/base
-         racket/match racket/pretty racket/vector
-         "windows.rkt")
+         racket/list racket/match racket/pretty racket/vector
+         "tile_world.rkt" "windows.rkt")
 
 (define image (standard-fish 100 45 #:open-mouth #t #:color (make-color 128 0 128)))
 (define image2 (jack-o-lantern 100 (make-color 128 0 128)))
@@ -37,38 +37,55 @@
          1 0 0 0 2 0 0 1
          1 1 1 1 1 1 1 1)))
 
+;(define-syntax my-let
+;  (syntax-rules ()
+;    ((_ ((lhs rhs) ...) body ...)
+;     ((lambda (lhs ...) body ...) rhs ...))
+;    ((_ name ((lhs rhs) ...) body ...)
+;      (letrec ((name (lambda (lhs ...) body ...)))
+;        (name rhs ...)))))
+
+;(my-let ((x 5))
+;  (pretty-print `(my-let x: ,5)))
+
 (define (world width height map-data)
-  (let world ((grid (list->vector map-data)))
+;  (define (world grid) ...)
+;  (world (list->vector map-data))
+
+;  (let ((x y)) z)
+;  ==>
+;  ((lambda (x) z) y)
+
+  (define initial-zone
+    (foldl
+      (lambda (i tile z)
+        (z 'set (remainder i width) (quotient i width) tile))
+      (zone width height)
+      (range (length map-data))
+      map-data))
+  (let world ((z initial-zone))
     (define (position x y) (cons x y))
     (define (position-x pos) (car pos))
     (define (position-y pos) (cdr pos))
     (define (position->index pos) (+ (* (position-y pos) width) (position-x pos)))
     (method-lambda
-      ((width)   width)
-      ((height)  height)
-      ((ref x y) (vector-ref grid (position->index (position x y))))
-      ((restart)
-        (let ((grid (vector-copy grid)))
-          (let loop ((i 0) (data map-data))
-            (unless (null? data)
-              (vector-set! grid i (car data))
-              (loop (+ i 1) (cdr data))))
-          (world grid)))
+      ((width)   (z 'width))
+      ((height)  (z 'height))
+      ((ref x y) (z 'ref x y))
+      ((restart) (world initial-zone))
       ((winning?)
-        (for/and ((tile (in-vector grid)))
-          ;; TODONT: collapse to single iteration check
-          (or (not (member 'pumpkin tile)) (member 'candle tile))))
+        (let loop ((x (- (z 'width) 1)) (y (- (z 'height) 1)))
+          (cond ((< x 0)                     (loop (- (z 'width) 1) (- y 1)))
+                ((< y 0)                     #t)
+                (else (define tile  (z 'ref x y))
+                  (if (or (not (member 'pumpkin tile)) (member 'candle tile))
+                    (loop (- x 1) y)
+                    #f)))))
       ((move direction)
-        (let ((grid (vector-copy grid)))
-          (define (index->position index) (position (remainder index width)
-                                                    (quotient index width)))
-
           (define (simplify pos)
             (define x (position-x pos))
             (define y (position-y pos))
-            (define tile (if (or (< x 0) (< y 0) (>= x width) (>= y height))
-                            '(wall)
-                            (vector-ref grid (position->index pos))))
+            (define tile (or (z 'ref x y) '(wall)))
             (cond ((member 'wall tile) 'obstacle)
                   ((member 'pumpkin tile) 'pumpkin)
                   (else 'vacant)))
@@ -80,38 +97,33 @@
               ((left)  (position (- (position-x pos) 1) (position-y pos)))
               ((right) (position (+ (position-x pos) 1) (position-y pos)))))
 
-          (define (move-fish pos dir)
+          (define (move-fish z pos dir)
             (define target (offset pos dir))
             (case (simplify target)
               ((obstacle) #f)
-              ((pumpkin) (and (move-pumpkin target dir)
-                              (move-entity 'fish pos target)))
-              ((vacant) (move-entity 'fish pos target))))
+              ((pumpkin) (let ((z (move-pumpkin z target dir)))
+                            (and z (move-entity z 'fish pos target))))
+              ((vacant) (move-entity z 'fish pos target))))
 
-          (define (move-pumpkin pos dir)
+          (define (move-pumpkin z pos dir)
             (define target (offset pos dir))
             (case (simplify target)
               ((obstacle pumpkin) #f)
-              ((vacant) (move-entity 'pumpkin pos target))))
+              ((vacant) (move-entity z 'pumpkin pos target))))
 
-          (define (move-entity entity pos target)
-            (define entity-index (position->index pos))
-            (define target-index (position->index target))
-            (define tile (vector-ref grid entity-index))
-            (define target-tile (vector-ref grid target-index))
-            (vector-set! grid entity-index (remq entity tile))
-            (vector-set! grid target-index (cons entity target-tile))
-            #t)
+          (define (move-entity z entity pos target)
+            (let* ((z (zone-remove z (position-x pos)    (position-y pos)    entity))
+                   (z (zone-add    z (position-x target) (position-y target) entity)))
+              z))
 
-          (define fish-pos 
-            (let loop ((i 0))
-              (if (member 'fish (vector-ref grid i))
-                  (index->position i)
-                  (begin
-                    (loop (+ i 1))))))
+          (define fish-pos
+            (let loop ((x (- (z 'width) 1)) (y 0))
+              (cond ((< x 0)                     (loop (- (z 'width) 1) (+ y 1)))
+                    ((member 'fish (z 'ref x y)) (position x y))
+                    (else                        (loop (- x 1) y)))))
 
-          (and (move-fish fish-pos direction)
-               (world grid)))))))
+          (define z.new (move-fish z fish-pos direction))
+          (if z.new (world z.new) (world z))))))
 
 (define (draw-world dc w)
   (define-values (tile-width tile-height) (values 50 50))
