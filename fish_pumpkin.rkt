@@ -45,10 +45,21 @@
 ;      (letrec ((name (lambda (lhs ...) body ...)))
 ;        (name rhs ...)))))
 
+;for ((a as) (b bs)) for* ((a as) (b bs)) 
+
+;(define-syntax my-let*
+;  (syntax-rules ()
+;    ((_ () body ...) (begin body ...))
+;    ((_ ((lhs rhs) (lhs-rest rhs-rest) ...) body ...)
+;     (let ((lhs rhs))
+;       (my-let* ((lhs-rest rhs-rest) ...) body ...)))))
+
 ;(my-let ((x 5))
 ;  (pretty-print `(my-let x: ,5)))
 
-(define (world width height map-data)
+
+
+(define (sokoban-world width height map-data)
 ;  (define (world grid) ...)
 ;  (world (list->vector map-data))
 
@@ -145,32 +156,32 @@
 
 (module+ test
   (require rackunit)
-  (check-not-false ((world 4 3 '(() (wall) (wall) ()
+  (check-not-false ((sokoban-world 4 3 '(() (wall) (wall) ()
                () (pumpkin candle) () () ()
                () () () ())) 'winning?))
 
   ;; check-equal?
-  (check-false ((world 4 3 '(() (wall) (wall) ()
+  (check-false ((sokoban-world 4 3 '(() (wall) (wall) ()
              () (pumpkin candle) () (pumpkin) (candle)
              () () () ())) 'winning?))          
 
-  (check-not-false ((world 2 1 '((fish) ())) 'move 'right))
-  (check-false ((world 1 2 '((fish) ())) 'move 'right))
-  (check-not-false ((world 2 1 '(() (fish))) 'move 'left))
-  (check-false ((world 1 2 '(() (fish))) 'move 'left))
-  (check-not-false ((world 1 2 '(() (fish))) 'move 'up))
-  (check-false ((world 2 1 '(() (fish))) 'move 'up))
-  (check-not-false ((world 1 2 '((fish) ())) 'move 'down))
-  (check-false ((world 2 1 '((fish) ())) 'move 'down))
+  (check-not-false ((sokoban-world 2 1 '((fish) ())) 'move 'right))
+  (check-false ((sokoban-world 1 2 '((fish) ())) 'move 'right))
+  (check-not-false ((sokoban-world 2 1 '(() (fish))) 'move 'left))
+  (check-false ((sokoban-world 1 2 '(() (fish))) 'move 'left))
+  (check-not-false ((sokoban-world 1 2 '(() (fish))) 'move 'up))
+  (check-false ((sokoban-world 2 1 '(() (fish))) 'move 'up))
+  (check-not-false ((sokoban-world 1 2 '((fish) ())) 'move 'down))
+  (check-false ((sokoban-world 2 1 '((fish) ())) 'move 'down))
 
-  (check-false ((world 2 1 '((fish) (pumpkin))) 'move 'right))
-  (check-not-false ((world 3 1 '((fish) (pumpkin) ())) 'move 'right))
-  (check-false ((world 3 1 '((fish) (pumpkin) (pumpkin))) 'move 'right))
-  (check-false ((world 3 1 '((fish) (pumpkin) (wall))) 'move 'right))
+  (check-false ((sokoban-world 2 1 '((fish) (pumpkin))) 'move 'right))
+  (check-not-false ((sokoban-world 3 1 '((fish) (pumpkin) ())) 'move 'right))
+  (check-false ((sokoban-world 3 1 '((fish) (pumpkin) (pumpkin))) 'move 'right))
+  (check-false ((sokoban-world 3 1 '((fish) (pumpkin) (wall))) 'move 'right))
 
-  (check-false ((world 2 1 '((fish) (wall))) 'move 'right))
+  (check-false ((sokoban-world 2 1 '((fish) (wall))) 'move 'right))
 
-  (define test-world (world 2 1 '((fish) ())))
+  (define test-world (sokoban-world 2 1 '((fish) ())))
   (check-not-false
     (let ((world.new (test-world 'move 'right)))
       (and world.new
@@ -189,7 +200,7 @@
   (w 'show)
   (w 'set-background 128 128 128)
   (void (thread (lambda ()
-          (let loop ((sw (world 8 9 map.level1)))
+          (let loop ((sw (sokoban-world 8 9 map.level1)))
             (define sw.new
               (foldl
                 (lambda (event sw)
@@ -201,7 +212,8 @@
                           (#\a (sw 'move 'left))
                           (#\d (sw 'move 'right))
                           (#\s (sw 'move 'down))
-                          (_ sw)))
+                          (#\r (sw 'restart))
+                          (_   sw)))
                       (or sw.new sw))
                     (_ sw)))
                 sw

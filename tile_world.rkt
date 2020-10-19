@@ -1,16 +1,42 @@
 #lang racket/base
-(provide zone zone-update zone-add zone-add-bottom zone-remove zone-remove-bottom)
-(require "method.rkt" racket/vector)
+(provide zone zone-width zone-height zone-ref zone-set
+         zone-update zone-add zone-add-bottom zone-remove zone-remove-bottom)
+(require racket/match racket/vector "method.rkt")
 
-;; world of zones
-;;   ;; zone-where-player-is
-;;   key=>zone
-;; potentially one-way links between zones
+(define (world)
+  (let world ((key=>zone (hash)))
+    (method-lambda
+      ((ref zone-id)  (hash-ref key=>zone zone-id)) ; TODO: what if zone-id is not in hash
+      ((set zone-id zone) (world (hash-set key=>zone zone-id zone)))
+      ((zone-ids) (hash-keys key=>zone))
+      ((find-all entity) 
+        (foldl 
+          (lambda (kv acc) 
+            (match-define `(,zone-id . ,zone) kv)
+            (append 
+              (map (lambda (xy) `(,zone-id . ,xy)) 
+                (zone-find-all zone entity)) 
+              acc)) 
+          '() 
+          (hash->list key=>zone))))))
 
-;(define (world)
-;  (define key=>zone (hash))
-;  (method-lambda
-;    ))
+(module+ test 
+  (require rackunit)
+  (let* ((zone.one (zone 5 5)) 
+         (zone.one (zone-set zone.one 1 1 '(pumpkin player)))
+         (zone.one (zone-set zone.one 3 3 '(pumpkin)))
+         (zone.two (zone-set zone.one 4 4 '(teleporter)))
+         (w ((world) 'set 'zone.one zone.one))
+         (w (w 'set 'zone.two zone.two))
+         (players (w 'find-all 'player))
+         (pumpkins (w 'find-all 'pumpkin))
+         (teleporters (w 'find-all 'teleporter)))
+
+    (check-not-false (member '(zone.one 1 1) players))
+    (check-not-false (member '(zone.two 1 1) players))
+    (check-false (member '(zone.one 4 4) teleporters))
+    (check-not-false (member '(zone.two 4 4) teleporters))
+    (check-equal? (length pumpkins) 4)))
 
 (define (zone width height)
   (let zone ((grid (make-vector (* width height) '())))
@@ -28,9 +54,14 @@
         (vector-set! grid.new (position->index (position x y)) entities)
         (zone grid.new)))))
 
+(define (zone-width  z) (z 'width))
+(define (zone-height z) (z 'height))
+(define (zone-ref z x y) (z 'ref x y))
+(define (zone-set z x y entities) (z 'set x y entities))
+
 (define (zone-update z x y f)
-  (define t (z 'ref x y))
-  (and t (z 'set x y (f t))))
+  (define tile (zone-ref z x y))
+  (and tile (zone-set z x y (f tile))))
 (define (zone-add z x y entity)
   (zone-update z x y (lambda (es) (cons entity es))))
 (define (zone-add-bottom z x y entity)
@@ -39,3 +70,12 @@
   (zone-update z x y (lambda (es) (remove entity es))))
 (define (zone-remove-bottom z x y entity)
   (zone-update z x y (lambda (es) (reverse (remove entity (reverse es))))))
+(define (zone-find-all z entity)
+  (let loop ((x 0) (y 0) (acc '())) 
+    (cond 
+      ((>= y (zone-height z)) (loop (+ x 1) 0 acc))
+      ((>= x (zone-width z)) acc)
+      (else (loop x (+ y 1) 
+              (if (member entity (zone-ref z x y)) 
+                `((,x ,y) . ,acc)   
+                acc))))))
