@@ -1,7 +1,9 @@
 #lang racket/base
 (provide zone zone-width zone-height zone-ref zone-set
          zone-update zone-add zone-add-bottom zone-remove zone-remove-bottom)
-(require racket/match racket/vector "method.rkt")
+(require racket/match racket/vector racket/list "method.rkt")
+
+(struct loc (zid x y) #:prefab)
 
 (define (world)
   (let world ((key=>zone (hash)))
@@ -19,6 +21,20 @@
               acc)) 
           '() 
           (hash->list key=>zone))))))
+
+(define (world-ref  w zid)    (w 'ref zid))
+(define (world-set  w zid z)  (w 'set zid z))
+(define (world-zids w)        (w 'zone-ids))
+(define (world-find w entity) (w 'find-all entity))
+
+(define (world-update w l f)
+  (world-set w (loc-zid l) (zone-update (world-ref w (loc-zid l)) (loc-x l) (loc-y l) f)))
+(define (world-add w l entity)
+  (world-set w (loc-zid l) (zone-add (world-ref w (loc-zid l)) (loc-x l) (loc-y l) entity)))
+(define (world-remove w l entity)
+  (world-set w (loc-zid l) (zone-remove (world-ref w (loc-zid l)) (loc-x l) (loc-y l) entity)))
+(define (world-move w l.s l.t entity)
+  (world-add (world-remove w l.s entity) l.t entity))
 
 (module+ test 
   (require rackunit)
@@ -71,11 +87,7 @@
 (define (zone-remove-bottom z x y entity)
   (zone-update z x y (lambda (es) (reverse (remove entity (reverse es))))))
 (define (zone-find-all z entity)
-  (let loop ((x 0) (y 0) (acc '())) 
-    (cond 
-      ((>= y (zone-height z)) (loop (+ x 1) 0 acc))
-      ((>= x (zone-width z)) acc)
-      (else (loop x (+ y 1) 
-              (if (member entity (zone-ref z x y)) 
-                `((,x ,y) . ,acc)   
-                acc))))))
+  (filter-not not
+    (map (lambda (xy) 
+          (and (member entity (apply zone-ref z xy)) xy))
+      (cartesian-product (range (zone-width z)) (range (zone-height z))))))

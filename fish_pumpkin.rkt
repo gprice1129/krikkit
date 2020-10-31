@@ -56,8 +56,38 @@
 
 ;(my-let ((x 5))
 ;  (pretty-print `(my-let x: ,5)))
+;; '(move ,direction) '(restart)
 
+(define (event->actions ev)
+  (match ev
+    (`(key down ,char)
+      (match char
+        (#\w '((move up)))
+        (#\a '((move left)))
+        (#\d '((move right)))
+        (#\s '((move down)))
+        (#\r '(restart))
+        (_   '())))
+    (_ '())))
 
+(define (handle-action sw action)
+  (or (match action
+        (`(move ,direction) (sw 'move direction))
+        ('restart           (sw 'restart))
+        (_                  (error "unrecognized action:" action)))
+      sw))
+
+(define (handle-actions sw actions)
+  (foldl (lambda (action sw) (handle-action sw action))
+         sw
+         actions))
+
+(define (game-loop init-world world-update world-present!)
+  (let loop ((sw init-world))
+    (define sw.new (world-update sw))
+    (world-present! sw.new)
+    (sleep 0.01)
+    (unless (sw.new 'winning?) (loop sw.new))))
 
 (define (sokoban-world width height map-data)
 ;  (define (world grid) ...)
@@ -134,7 +164,7 @@
                     (else                        (loop (- x 1) y)))))
 
           (define z.new (move-fish z fish-pos direction))
-          (if z.new (world z.new) (world z))))))
+          (and z.new (world z.new))))))
 
 (define (draw-world dc w)
   (define-values (tile-width tile-height) (values 50 50))
@@ -157,13 +187,13 @@
 (module+ test
   (require rackunit)
   (check-not-false ((sokoban-world 4 3 '(() (wall) (wall) ()
-               () (pumpkin candle) () () ()
-               () () () ())) 'winning?))
+                                         () (pumpkin candle) () ()
+                                         () () () ())) 'winning?))
 
-  ;; check-equal?
+  ; check-equal?
   (check-false ((sokoban-world 4 3 '(() (wall) (wall) ()
-             () (pumpkin candle) () (pumpkin) (candle)
-             () () () ())) 'winning?))          
+                                     () (pumpkin candle) () (pumpkin)
+                                     (candle) () () ())) 'winning?))          
 
   (check-not-false ((sokoban-world 2 1 '((fish) ())) 'move 'right))
   (check-false ((sokoban-world 1 2 '((fish) ())) 'move 'right))
@@ -195,31 +225,37 @@
   (define pos-x 0)
   (define pos-y 0)
   (define w (window (event-pusher 'key) (event-pusher 'mouse) width height))
+  (define actions '())
+  (define (world-present! sw)
+    (w 'render (lambda (dc) (draw-world dc sw))))
+
+  (define (handle-events sw)
+    (foldl
+      (lambda (event sw)
+        (define as (event->actions event))
+        (set! actions (append (reverse as) actions))
+        (handle-actions sw as))
+      sw
+      (evq 'pop)))
+  
+  (define (replay-action! sw)
+    (if (null? actions)
+        sw
+        (let ()
+          (define a (car actions))
+          (set! actions (cdr actions))
+          (sleep 0.1)
+          (handle-action sw a))))
+  
   (w 'set-title! "testing")
   (w 'resize width height)
   (w 'show)
   (w 'set-background 128 128 128)
+
   (void (thread (lambda ()
-          (let loop ((sw (sokoban-world 8 9 map.level1)))
-            (define sw.new
-              (foldl
-                (lambda (event sw)
-                  (match event
-                    (`(key down ,char)
-                      (define sw.new
-                        (match char
-                          (#\w (sw 'move 'up))
-                          (#\a (sw 'move 'left))
-                          (#\d (sw 'move 'right))
-                          (#\s (sw 'move 'down))
-                          (#\r (sw 'restart))
-                          (_   sw)))
-                      (or sw.new sw))
-                    (_ sw)))
-                sw
-                (evq 'pop)))
-            (w 'render
-              (lambda (dc)
-                (draw-world dc sw.new)))
-            (sleep 0.01)
-            (loop (if (sw.new 'winning?) (sw.new 'restart) sw.new)))))))
+          (define sw.init (sokoban-world 8 9 map.level1))
+          (game-loop sw.init handle-events world-present!)
+          (set! actions (reverse actions))
+          (pretty-print `(you won! using these actions: ,actions))
+          (game-loop sw.init replay-action! world-present!)
+          (pretty-print '(replay over hope you liked it!))))))
