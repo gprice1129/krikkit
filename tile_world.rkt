@@ -1,9 +1,28 @@
 #lang racket/base
 (provide zone zone-width zone-height zone-ref zone-set
-         zone-update zone-add zone-add-bottom zone-remove zone-remove-bottom)
+         zone-update zone-add zone-add-bottom zone-remove zone-remove-bottom
+         world world-ref world-set world-zids world-find
+         world-update world-add world-remove world-move
+         (struct-out vec2) vec2+ vec2-scale dir->vec2
+         (struct-out loc) loc-x loc-y)
 (require racket/match racket/vector racket/list "method.rkt")
 
-(struct loc (zid x y) #:prefab)
+(struct vec2 (x y) #:prefab)
+(define (vec2+ v.1 v.2)
+  (vec2 (+ (vec2-x v.1) (vec2-x v.2)) (+ (vec2-y v.1) (vec2-y v.2))))
+(define (vec2-scale v s)
+  (vec2 (* s (vec2-x v)) (* s (vec2-y v))))
+
+(struct loc (zid pos) #:prefab)
+(define (loc-x loc) (vec2-x (loc-pos loc)))
+(define (loc-y loc) (vec2-y (loc-pos loc)))
+
+(define (dir->vec2 dir)
+  (case dir
+    ((up)    (vec2  0 -1))
+    ((down)  (vec2  0  1))
+    ((left)  (vec2 -1  0))
+    ((right) (vec2  1  0))))
 
 (define (world)
   (let world ((key=>zone (hash)))
@@ -16,9 +35,9 @@
           (lambda (kv acc) 
             (match-define `(,zone-id . ,zone) kv)
             (append 
-              (map (lambda (xy) `(,zone-id . ,xy)) 
-                (zone-find-all zone entity)) 
-              acc)) 
+              (map (lambda (xy) (loc zone-id xy)) 
+                (zone-find-all zone entity))
+              acc))
           '() 
           (hash->list key=>zone))))))
 
@@ -48,10 +67,10 @@
          (pumpkins (w 'find-all 'pumpkin))
          (teleporters (w 'find-all 'teleporter)))
 
-    (check-not-false (member '(zone.one 1 1) players))
-    (check-not-false (member '(zone.two 1 1) players))
-    (check-false (member '(zone.one 4 4) teleporters))
-    (check-not-false (member '(zone.two 4 4) teleporters))
+    (check-not-false (member (loc zone.one (vec2 1 1)) players))
+    (check-not-false (member (loc zone.two (vec2 1 1)) players))
+    (check-false     (member (loc zone.one (vec2 4 4)) teleporters))
+    (check-not-false (member (loc zone.two (vec2 4 4)) teleporters))
     (check-equal? (length pumpkins) 4)))
 
 (define (zone width height)
@@ -88,6 +107,6 @@
   (zone-update z x y (lambda (es) (reverse (remove entity (reverse es))))))
 (define (zone-find-all z entity)
   (filter-not not
-    (map (lambda (xy) 
-          (and (member entity (apply zone-ref z xy)) xy))
+    (map (lambda (xy)
+          (and (member entity (apply zone-ref z xy)) (apply vec2 xy)))
       (cartesian-product (range (zone-width z)) (range (zone-height z))))))

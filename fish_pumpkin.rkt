@@ -15,18 +15,12 @@
 (define width 400)
 (define height 450)
 
-
-;; game winning condition
-;;   all pumpkins must become 🎃
-
-;; input response
-;;   w,a,s,d to attempt moving fish in a direction
-
 (define map-tile-types
-  '#(() (wall) (candle) (pumpkin) (pumpkin candle) (fish) (fish candle)))
+  '#(() (wall) (candle) (pumpkin) (pumpkin candle) (fish) (fish candle) ((portal 1 1 3)) ((portal 0 2 2))))
 
-(define map.level1
-  (map (lambda (type-index) (vector-ref map-tile-types type-index))
+(define map.w0.z0
+  (list '(8 9)
+    (map (lambda (type-index) (vector-ref map-tile-types type-index))
        '(0 0 1 1 1 1 1 0
          1 1 1 0 0 0 1 0
          1 2 5 3 0 0 1 0
@@ -34,29 +28,21 @@
          1 2 1 1 3 0 1 0
          1 0 1 0 2 0 1 1
          1 3 0 4 3 3 2 1
-         1 0 0 0 2 0 0 1
-         1 1 1 1 1 1 1 1)))
+         1 0 0 0 2 0 7 1
+         1 1 1 1 1 1 1 1))))
 
-;(define-syntax my-let
-;  (syntax-rules ()
-;    ((_ ((lhs rhs) ...) body ...)
-;     ((lambda (lhs ...) body ...) rhs ...))
-;    ((_ name ((lhs rhs) ...) body ...)
-;      (letrec ((name (lambda (lhs ...) body ...)))
-;        (name rhs ...)))))
+(define map.w0.z1
+  (list '(8 7)
+    (map (lambda (type-index) (vector-ref map-tile-types type-index))
+         '(1 1 1 1 1 1 1 1
+           1 0 0 1 0 0 0 1
+           1 0 3 2 2 3 0 1
+           1 0 3 2 4 0 1 1
+           1 0 3 2 2 3 0 1
+           1 8 0 1 0 0 0 1
+           1 1 1 1 1 1 1 1))))
 
-;for ((a as) (b bs)) for* ((a as) (b bs)) 
-
-;(define-syntax my-let*
-;  (syntax-rules ()
-;    ((_ () body ...) (begin body ...))
-;    ((_ ((lhs rhs) (lhs-rest rhs-rest) ...) body ...)
-;     (let ((lhs rhs))
-;       (my-let* ((lhs-rest rhs-rest) ...) body ...)))))
-
-;(my-let ((x 5))
-;  (pretty-print `(my-let x: ,5)))
-;; '(move ,direction) '(restart)
+(define map.w1 (list map.w0.z0 map.w0.z1))
 
 (define (event->actions ev)
   (match ev
@@ -89,94 +75,87 @@
     (sleep 0.01)
     (unless (sw.new 'winning?) (loop sw.new))))
 
-(define (sokoban-world width height map-data)
-;  (define (world grid) ...)
-;  (world (list->vector map-data))
-
-;  (let ((x y)) z)
-;  ==>
-;  ((lambda (x) z) y)
-
-  (define initial-zone
-    (foldl
-      (lambda (i tile z)
-        (z 'set (remainder i width) (quotient i width) tile))
-      (zone width height)
-      (range (length map-data))
+(define (sokoban-state map-data)
+  (define initial-zones
+    (map (lambda (map.z)
+          (match-define (list width height) (car map.z))
+          (define tile-codes (cadr map.z))
+          (foldl
+            (lambda (i tile z)
+              (zone-set z (remainder i width) (quotient i width) tile))
+            (zone width height)
+            (range (length tile-codes))
+            tile-codes))
       map-data))
-  (let world ((z initial-zone))
-    (define (position x y) (cons x y))
-    (define (position-x pos) (car pos))
-    (define (position-y pos) (cdr pos))
-    (define (position->index pos) (+ (* (position-y pos) width) (position-x pos)))
+  (define initial-world
+    (foldl
+      (lambda (i z w) (world-set w i z))
+      (world)
+      (range (length initial-zones))
+      initial-zones))
+  (let state ((w initial-world))
+    (define loc.fish (car (world-find w 'fish)))
+    (define z (world-ref w (loc-zid loc.fish)))
+    (define (vec2->index pos) (+ (* (vec2-y pos) (zone-width z)) (vec2-x pos)))
     (method-lambda
-      ((width)   (z 'width))
-      ((height)  (z 'height))
-      ((ref x y) (z 'ref x y))
-      ((restart) (world initial-zone))
+      ((current-zone) z)
+      ((restart)      (state initial-world))
       ((winning?)
-        (let loop ((x (- (z 'width) 1)) (y (- (z 'height) 1)))
-          (cond ((< x 0)                     (loop (- (z 'width) 1) (- y 1)))
+        (let loop ((x (- (zone-width z) 1)) (y (- (zone-height z) 1)))
+          (cond ((< x 0)                     (loop (- (zone-width z) 1) (- y 1)))
                 ((< y 0)                     #t)
-                (else (define tile  (z 'ref x y))
+                (else (define tile (zone-ref z x y))
                   (if (or (not (member 'pumpkin tile)) (member 'candle tile))
                     (loop (- x 1) y)
                     #f)))))
-      ((move direction)
+      ((move dir)
           (define (simplify pos)
-            (define x (position-x pos))
-            (define y (position-y pos))
-            (define tile (or (z 'ref x y) '(wall)))
-            (cond ((member 'wall tile) 'obstacle)
+            (define x (vec2-x pos))
+            (define y (vec2-y pos))
+            (define tile (or (zone-ref z x y) '(wall)))
+            (define (portal? entity) (and (pair? entity) (eq? 'portal (car entity))))
+            (cond ((member 'wall tile)    'obstacle)
                   ((member 'pumpkin tile) 'pumpkin)
-                  (else 'vacant)))
+                  ((memf portal? tile) => (lambda (entities) (car entities)))
+                  (else                   'vacant)))
 
           (define (offset pos dir)
-            (case dir
-              ((up)    (position (position-x pos) (- (position-y pos) 1)))
-              ((down)  (position (position-x pos) (+ (position-y pos) 1)))
-              ((left)  (position (- (position-x pos) 1) (position-y pos)))
-              ((right) (position (+ (position-x pos) 1) (position-y pos)))))
+            (vec2+ pos (dir->vec2 dir)))
 
-          (define (move-fish z pos dir)
-            (define target (offset pos dir))
-            (case (simplify target)
-              ((obstacle) #f)
-              ((pumpkin) (let ((z (move-pumpkin z target dir)))
-                            (and z (move-entity z 'fish pos target))))
-              ((vacant) (move-entity z 'fish pos target))))
+          (define fish-pos (loc-pos loc.fish))
+          (define fish-zid (loc-zid loc.fish))
 
-          (define (move-pumpkin z pos dir)
-            (define target (offset pos dir))
-            (case (simplify target)
-              ((obstacle pumpkin) #f)
-              ((vacant) (move-entity z 'pumpkin pos target))))
+          (define target.fish (offset fish-pos dir))
+          (define (move-fish w) (world-move w (loc fish-zid fish-pos) (loc fish-zid target.fish) 'fish))
+          (define w.new
+            (match (simplify target.fish)
+              ('obstacle #f)
+              ('pumpkin
+                (define target.pumpkin (offset target.fish dir))
+                (case (simplify target.pumpkin)
+                  ((vacant)
+                    (move-fish
+                      (world-move w (loc fish-zid target.fish) (loc fish-zid target.pumpkin) 'pumpkin)))
+                  (else #f)))
+              ('vacant              (move-fish w))
+              (`(portal ,zid ,x ,y) (world-move w (loc fish-zid fish-pos) (loc zid (vec2 x y)) 'fish))))
 
-          (define (move-entity z entity pos target)
-            (let* ((z (zone-remove z (position-x pos)    (position-y pos)    entity))
-                   (z (zone-add    z (position-x target) (position-y target) entity)))
-              z))
-
-          (define fish-pos
-            (let loop ((x (- (z 'width) 1)) (y 0))
-              (cond ((< x 0)                     (loop (- (z 'width) 1) (+ y 1)))
-                    ((member 'fish (z 'ref x y)) (position x y))
-                    (else                        (loop (- x 1) y)))))
-
-          (define z.new (move-fish z fish-pos direction))
-          (and z.new (world z.new))))))
+          (and w.new (state w.new))))))
 
 (define (scale->entity->pict scale)
   (define fish (standard-fish scale (/ scale 2)))
   (define pumpkin (jack-o-lantern scale))
   (define wall (standard-cat scale (* scale 0.90)))
   (define candle (circle scale))
+  (define portal (filled-flash scale scale))
   (lambda (entity)
    (case entity
     ((candle)  candle)
     ((pumpkin) pumpkin)
     ((wall)    wall)
-    ((fish)    fish))))
+    ((fish)    fish)
+    (else      (case (car entity)
+                 ((portal) portal))))))
 
 (define (draw-zone dc zone scale scale->entity->pict)
   (define entity->pict (scale->entity->pict scale)) 
@@ -187,43 +166,46 @@
     (for ((entity (reverse (zone 'ref x y))))
       (draw-pict (entity->pict entity) dc px-x px-y))))
 
-(define (draw-world dc w)
+(define (draw-state dc st)
   (define scale 50)
-  (draw-zone dc w scale scale->entity->pict))
- 
+  (draw-zone dc (st 'current-zone) scale scale->entity->pict))
+
 (module+ test
   (require rackunit)
-  (check-not-false ((sokoban-world 4 3 '(() (wall) (wall) ()
-                                         () (pumpkin candle) () ()
-                                         () () () ())) 'winning?))
+  (check-not-false ((sokoban-state '(((4 3)
+                                      (() (wall) (wall) ()
+                                       () (pumpkin candle) () ()
+                                       (fish) () () ())))) 'winning?))
 
   ; check-equal?
-  (check-false ((sokoban-world 4 3 '(() (wall) (wall) ()
-                                     () (pumpkin candle) () (pumpkin)
-                                     (candle) () () ())) 'winning?))          
+  (check-false ((sokoban-state '(((4 3)
+                                  (() (wall) (wall) ()
+                                   () (pumpkin candle) () (pumpkin)
+                                   (candle) (fish) () ())))) 'winning?))
 
-  (check-not-false ((sokoban-world 2 1 '((fish) ())) 'move 'right))
-  (check-false ((sokoban-world 1 2 '((fish) ())) 'move 'right))
-  (check-not-false ((sokoban-world 2 1 '(() (fish))) 'move 'left))
-  (check-false ((sokoban-world 1 2 '(() (fish))) 'move 'left))
-  (check-not-false ((sokoban-world 1 2 '(() (fish))) 'move 'up))
-  (check-false ((sokoban-world 2 1 '(() (fish))) 'move 'up))
-  (check-not-false ((sokoban-world 1 2 '((fish) ())) 'move 'down))
-  (check-false ((sokoban-world 2 1 '((fish) ())) 'move 'down))
+  (check-not-false ((sokoban-state '(((2 1) ((fish) ())))) 'move 'right))
+  (check-false     ((sokoban-state '(((1 2) ((fish) ())))) 'move 'right))
+  (check-not-false ((sokoban-state '(((2 1) (() (fish))))) 'move 'left))
+  (check-false     ((sokoban-state '(((1 2) (() (fish))))) 'move 'left))
+  (check-not-false ((sokoban-state '(((1 2) (() (fish))))) 'move 'up))
+  (check-false     ((sokoban-state '(((2 1) (() (fish))))) 'move 'up))
+  (check-not-false ((sokoban-state '(((1 2) ((fish) ())))) 'move 'down))
+  (check-false     ((sokoban-state '(((2 1) ((fish) ())))) 'move 'down))
 
-  (check-false ((sokoban-world 2 1 '((fish) (pumpkin))) 'move 'right))
-  (check-not-false ((sokoban-world 3 1 '((fish) (pumpkin) ())) 'move 'right))
-  (check-false ((sokoban-world 3 1 '((fish) (pumpkin) (pumpkin))) 'move 'right))
-  (check-false ((sokoban-world 3 1 '((fish) (pumpkin) (wall))) 'move 'right))
+  (check-false     ((sokoban-state '(((2 1) ((fish) (pumpkin)))))           'move 'right))
+  (check-not-false ((sokoban-state '(((3 1) ((fish) (pumpkin) ()))))        'move 'right))
+  (check-false     ((sokoban-state '(((3 1) ((fish) (pumpkin) (pumpkin))))) 'move 'right))
+  (check-false     ((sokoban-state '(((3 1) ((fish) (pumpkin) (wall)))))    'move 'right))
 
-  (check-false ((sokoban-world 2 1 '((fish) (wall))) 'move 'right))
+  (check-false     ((sokoban-state '(((2 1) ((fish) (wall))))) 'move 'right))
 
-  (define test-world (sokoban-world 2 1 '((fish) ())))
+  (define test-state (sokoban-state '(((2 1) ((fish) ())))))
   (check-not-false
-    (let ((world.new (test-world 'move 'right)))
-      (and world.new
+    (let ((st.new (test-state 'move 'right)))
+      (and st.new
            ;; TODO: use ref instead of show
-           (equal? (list (world.new 'ref 0 0) (world.new 'ref 1 0))
+           (equal? (list (zone-ref (st.new 'current-zone) 0 0)
+                         (zone-ref (st.new 'current-zone) 1 0))
                    '(() (fish)))))))
 
 ;; raco test fish_pumpkin.rkt
@@ -233,26 +215,26 @@
   (define pos-y 0)
   (define w (window (event-pusher 'key) (event-pusher 'mouse) width height))
   (define actions '())
-  (define (world-present! sw)
-    (w 'render (lambda (dc) (draw-world dc sw))))
+  (define (world-present! st)
+    (w 'render (lambda (dc) (draw-state dc st))))
 
-  (define (handle-events sw)
+  (define (handle-events st)
     (foldl
-      (lambda (event sw)
+      (lambda (event st)
         (define as (event->actions event))
         (set! actions (append (reverse as) actions))
-        (handle-actions sw as))
-      sw
+        (handle-actions st as))
+      st
       (evq 'pop)))
   
-  (define (replay-action! sw)
+  (define (replay-action! st)
     (if (null? actions)
-        sw
+        st
         (let ()
           (define a (car actions))
           (set! actions (cdr actions))
           (sleep 0.1)
-          (handle-action sw a))))
+          (handle-action st a))))
   
   (w 'set-title! "testing")
   ;(w 'resize width height)
@@ -260,9 +242,9 @@
   (w 'set-background 128 128 128)
 
   (void (thread (lambda ()
-          (define sw.init (sokoban-world 8 9 map.level1))
-          (game-loop sw.init handle-events world-present!)
+          (define st.init (sokoban-state map.w1))
+          (game-loop st.init handle-events world-present!)
           (set! actions (reverse actions))
           (pretty-print `(you won! using these actions: ,actions))
-          (game-loop sw.init replay-action! world-present!)
+          (game-loop st.init replay-action! world-present!)
           (pretty-print '(replay over hope you liked it!))))))
