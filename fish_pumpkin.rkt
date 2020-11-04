@@ -166,24 +166,31 @@
           (define z.new (move-fish z fish-pos direction))
           (and z.new (world z.new))))))
 
-(define (draw-world dc w)
-  (define-values (tile-width tile-height) (values 50 50))
-  (define fish (standard-fish 50 25))
-  (define pumpkin (jack-o-lantern 50))
-  (define wall (standard-cat 50 45))
-  (define candle (circle 50))
-  (for* ((x (in-range (w 'width)))
-         (y (in-range (w 'height))))
-    (define-values (px-x px-y) (values (* tile-width x) (* tile-height y)))
-    (for ((entity (reverse (w 'ref x y))))
-      (draw-pict
-        (case entity
-          ((candle)  candle)
-          ((pumpkin) pumpkin)
-          ((wall)    wall)
-          ((fish)    fish))
-        dc px-x px-y))))
+(define (scale->entity->pict scale)
+  (define fish (standard-fish scale (/ scale 2)))
+  (define pumpkin (jack-o-lantern scale))
+  (define wall (standard-cat scale (* scale 0.90)))
+  (define candle (circle scale))
+  (lambda (entity)
+   (case entity
+    ((candle)  candle)
+    ((pumpkin) pumpkin)
+    ((wall)    wall)
+    ((fish)    fish))))
 
+(define (draw-zone dc zone scale scale->entity->pict)
+  (define entity->pict (scale->entity->pict scale)) 
+  (define-values (tile-width tile-height) (values scale scale))
+  (for* ((x (in-range (zone 'width)))
+         (y (in-range (zone 'height))))
+    (define-values (px-x px-y) (values (* tile-width x) (* tile-height y)))
+    (for ((entity (reverse (zone 'ref x y))))
+      (draw-pict (entity->pict entity) dc px-x px-y))))
+
+(define (draw-world dc w)
+  (define scale 50)
+  (draw-zone dc w scale scale->entity->pict))
+ 
 (module+ test
   (require rackunit)
   (check-not-false ((sokoban-world 4 3 '(() (wall) (wall) ()
@@ -248,7 +255,7 @@
           (handle-action sw a))))
   
   (w 'set-title! "testing")
-  (w 'resize width height)
+  ;(w 'resize width height)
   (w 'show)
   (w 'set-background 128 128 128)
 
