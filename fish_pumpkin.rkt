@@ -82,7 +82,7 @@
           (define tile-codes (cadr map.z))
           (foldl
             (lambda (i tile z)
-              (zone-set z (remainder i width) (quotient i width) tile))
+              (zone-set z (vec2 (remainder i width) (quotient i width)) tile))
             (zone width height)
             (range (length tile-codes))
             tile-codes))
@@ -96,7 +96,6 @@
   (let state ((w initial-world))
     (define loc.fish (car (world-find w 'fish)))
     (define z (world-ref w (loc-zid loc.fish)))
-    (define (vec2->index pos) (+ (* (vec2-y pos) (zone-width z)) (vec2-x pos)))
     (method-lambda
       ((current-zone) z)
       ((restart)      (state initial-world))
@@ -104,15 +103,13 @@
         (let loop ((x (- (zone-width z) 1)) (y (- (zone-height z) 1)))
           (cond ((< x 0)                     (loop (- (zone-width z) 1) (- y 1)))
                 ((< y 0)                     #t)
-                (else (define tile (zone-ref z x y))
+                (else (define tile (zone-ref z (vec2 x y)))
                   (if (or (not (member 'pumpkin tile)) (member 'candle tile))
                     (loop (- x 1) y)
                     #f)))))
       ((move dir)
           (define (simplify pos)
-            (define x (vec2-x pos))
-            (define y (vec2-y pos))
-            (define tile (or (zone-ref z x y) '(wall)))
+            (define tile (or (zone-ref z pos) '(wall)))
             (define (portal? entity) (and (pair? entity) (eq? 'portal (car entity))))
             (cond ((member 'wall tile)    'obstacle)
                   ((member 'pumpkin tile) 'pumpkin)
@@ -163,7 +160,7 @@
   (for* ((x (in-range (zone 'width)))
          (y (in-range (zone 'height))))
     (define-values (px-x px-y) (values (* tile-width x) (* tile-height y)))
-    (for ((entity (reverse (zone 'ref x y))))
+    (for ((entity (reverse (zone 'ref (vec2 x y)))))
       (draw-pict (entity->pict entity) dc px-x px-y))))
 
 (define (draw-state dc st)
@@ -204,15 +201,13 @@
     (let ((st.new (test-state 'move 'right)))
       (and st.new
            ;; TODO: use ref instead of show
-           (equal? (list (zone-ref (st.new 'current-zone) 0 0)
-                         (zone-ref (st.new 'current-zone) 1 0))
+           (equal? (list (zone-ref (st.new 'current-zone) (vec2 0 0))
+                         (zone-ref (st.new 'current-zone) (vec2 1 0)))
                    '(() (fish)))))))
 
 ;; raco test fish_pumpkin.rkt
 
 (module+ main
-  (define pos-x 0)
-  (define pos-y 0)
   (define w (window (event-pusher 'key) (event-pusher 'mouse) width height))
   (define actions '())
   (define (world-present! st)
@@ -237,7 +232,6 @@
           (handle-action st a))))
   
   (w 'set-title! "testing")
-  ;(w 'resize width height)
   (w 'show)
   (w 'set-background 128 128 128)
 
