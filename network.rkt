@@ -1,6 +1,6 @@
 #lang racket/base
 (provide tcp:listener tcp:connect)
-(require racket/tcp)
+(require "method.rkt" racket/tcp)
 
 (define (socket in out)
   (method-lambda
@@ -25,16 +25,16 @@
 
 ;; example server steps
 
-(define l (tcp:listener 8123))
-(define s (l 'accept))
-(s 'write "welcome to the server")
-(s 'read)
-(s 'close)
+;(define l (tcp:listener 8123))
+;(define s (l 'accept))
+;(s 'write "welcome to the server")
+;(s 'read)
+;(s 'close)
 
 
 ;; example client steps
 
-(define s (tcp:connect  "104.175.140.40" 8123))
-(s 'read)
-(s 'write "why thank you, I am excited to be here")
-(s 'close)
+;(define s (tcp:connect  "104.175.140.40" 8123))
+;(s 'read)
+;(s 'write "why thank you, I am excited to be here")
+;(s 'close)
