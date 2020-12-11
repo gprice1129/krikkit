@@ -64,11 +64,12 @@
 (define (game-loop init-world world-update world-present! stop?)
     ;; TODO: new loop order
     ;; 1. get state from server
-    ;; 2. world-present!
-    ;; 3. optionally sleep
-    ;; 4. process local input events -> actions
-    ;; 5. send actions to server
-    ;; 6. loop
+    ;; 2. update state
+    ;; 3. world-present!
+    ;; 4. optionally sleep
+    ;; 5. process local input events -> actions
+    ;; 6. send actions to server
+    ;; 7. loop
   (let loop ((sw init-world))
     (world-present! sw)
     (cond ((stop? sw) sw)
